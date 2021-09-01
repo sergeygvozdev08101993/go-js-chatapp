@@ -2,58 +2,35 @@ package main
 
 import (
 	"fmt"
-	"github.com/gorilla/websocket"
-	"log"
+	"github.com/sergeygvozdev08101993/go-js-chatapp/pkg/websocket"
 	"net/http"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
-
-// reader получает сообщения передаваемые по WebSocket соединению,
-// и передает это же сообщение обратно клиенту.
-func reader(conn *websocket.Conn) {
-
-	for {
-
-		messageType, data, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		log.Println(string(data))
-
-		if err := conn.WriteMessage(messageType, data); err != nil {
-			log.Println(err)
-			return
-		}
-	}
-}
-
 // serveWs устанавливает соединение по протоколу WebSocket.
-func serveWs(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r.Host)
+func serveWs(pool *websocket.Pool, w http.ResponseWriter, r *http.Request) {
 
-	ws, err := upgrader.Upgrade(w, r, nil)
+	ws, err := websocket.Upgrade(w, r)
 	if err != nil {
-		log.Println(err)
+		fmt.Fprintf(w, "%+v\n", err)
 	}
 
-	reader(ws)
+	client := &websocket.Client{
+		Conn: ws,
+		Pool: pool,
+	}
+
+	pool.Register <- client
+	client.Read()
 }
 
 // setupRoutes определяет маршруты и соответствующие им обработчики.
 func setupRoutes() {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "simple server")
-	})
+	pool := websocket.NewPool()
+	go pool.Start()
 
-	http.HandleFunc("/ws", serveWs)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWs(pool, w, r)
+	})
 }
 
 func main() {
